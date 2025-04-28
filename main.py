@@ -28,6 +28,9 @@ def main():
         except Exception as e:
             print(f"'{category}' 분야 검색 중 오류 발생: {str(e)}")
 
+    for category in categories:
+        collector.collect_and_send_news(category, count=5)
+
 if __name__ == "__main__":
     main() 
     

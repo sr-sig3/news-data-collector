@@ -1,8 +1,10 @@
 import requests
-from typing import List, Dict, Optional, Set
+from typing import List, Dict, Optional, Set, Any
 from ..models.news import News
 from config.config import NAVER_CLIENT_ID, NAVER_CLIENT_SECRET, NAVER_NEWS_SEARCH_URL, DEFAULT_SEARCH_PARAMS
 from config.categories import CATEGORIES
+from datetime import datetime
+from ..producer.kafka_producer import NewsKafkaProducer
 
 class NewsCollector:
     def __init__(self):
@@ -10,6 +12,7 @@ class NewsCollector:
             'X-Naver-Client-Id': NAVER_CLIENT_ID,
             'X-Naver-Client-Secret': NAVER_CLIENT_SECRET
         }
+        self.kafka_producer = NewsKafkaProducer()
 
     def search_news(self, query: str, display: int = 10, start: int = 1, 
                    sort: str = 'date', media: Optional[str] = None) -> List[News]:
@@ -120,4 +123,34 @@ class NewsCollector:
                         all_news.append(news)
                         seen_links.add(news.link)
                         
-        return all_news[:count] 
+        return all_news[:count]
+
+    def collect_and_send_news(self, query: str, count: int = 10) -> None:
+        """
+        뉴스를 수집하고 Kafka로 전송합니다.
+        
+        Args:
+            query (str): 검색어
+            count (int): 수집할 뉴스 개수
+        """
+        try:
+            # 뉴스 수집
+            news_list = self.search_news(query, count)
+            
+            # 각 뉴스를 Kafka로 전송
+            for news in news_list:
+                news_data = {
+                    'title': news.title,
+                    'link': news.link,
+                    'description': news.description,
+                    'pub_date': news.pub_date.isoformat(),
+                    'source': news.source,
+                    'collected_at': datetime.now().isoformat()
+                }
+                self.kafka_producer.send_news(news_data)
+                
+        except Exception as e:
+            print(f"Error in collect_and_send_news: {str(e)}")
+            raise
+        finally:
+            self.kafka_producer.close() 
