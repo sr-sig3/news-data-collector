@@ -14,6 +14,12 @@ class NewsCollector:
         }
         self.kafka_producer = NewsKafkaProducer()
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
     def search_news(self, query: str, display: int = 10, start: int = 1, 
                    sort: str = 'date', media: Optional[str] = None) -> List[News]:
         """
@@ -152,5 +158,7 @@ class NewsCollector:
         except Exception as e:
             print(f"Error in collect_and_send_news: {str(e)}")
             raise
-        finally:
-            self.kafka_producer.close() 
+
+    def close(self):
+        """Kafka Producer를 명시적으로 닫습니다."""
+        self.kafka_producer.close() 
