@@ -6,6 +6,8 @@ from config.categories import CATEGORIES
 from datetime import datetime
 from ..producer.kafka_producer import NewsKafkaProducer
 import logging
+import time
+from requests.exceptions import RequestException
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +19,7 @@ class NewsCollector:
             'X-Naver-Client-Secret': NAVER_CLIENT_SECRET
         }
         self.kafka_producer = NewsKafkaProducer()
+        self.request_delay = 0.1  # 100ms 딜레이
 
     def __enter__(self):
         return self
@@ -47,21 +50,41 @@ class NewsCollector:
             'sort': sort
         })
 
-        response = requests.get(
-            NAVER_NEWS_SEARCH_URL,
-            headers=self.headers,
-            params=params
-        )
-        response.raise_for_status()
+        try:
+            # API 요청 전 딜레이
+            time.sleep(self.request_delay)
+            
+            response = requests.get(
+                NAVER_NEWS_SEARCH_URL,
+                headers=self.headers,
+                params=params
+            )
+            
+            # 429 에러 (Too Many Requests) 발생 시 딜레이 증가
+            if response.status_code == 429:
+                logger.warning("Rate limit exceeded, increasing delay")
+                self.request_delay *= 2
+                time.sleep(1)  # 1초 대기
+                return self.search_news(query, display, start, sort, media)
+            
+            response.raise_for_status()
 
-        data = response.json()
-        news_list = [News.create_from_response(item) for item in data['items']]
-        
-        # 특정 언론사 필터링
-        if media:
-            news_list = [news for news in news_list if media in news.source]
-        
-        return news_list
+            data = response.json()
+            news_list = [News.create_from_response(item) for item in data['items']]
+            
+            # 특정 언론사 필터링
+            if media:
+                news_list = [news for news in news_list if media in news.source]
+            
+            return news_list
+            
+        except RequestException as e:
+            logger.error(f"Error searching news: {str(e)}")
+            if "429" in str(e):
+                logger.warning("Rate limit exceeded, waiting before retry")
+                time.sleep(1)
+                return self.search_news(query, display, start, sort, media)
+            raise
 
     def get_latest_news(self, query: str, count: int = 10, 
                        media: Optional[str] = None) -> List[News]:
@@ -80,16 +103,21 @@ class NewsCollector:
         start = 1
         
         while len(all_news) < count:
-            news = self.search_news(
-                query, 
-                display=min(100, count - len(all_news)), 
-                start=start,
-                media=media
-            )
-            if not news:
+            try:
+                news = self.search_news(
+                    query, 
+                    display=min(100, count - len(all_news)), 
+                    start=start,
+                    media=media
+                )
+                if not news:
+                    break
+                all_news.extend(news)
+                start += len(news)
+                
+            except Exception as e:
+                logger.error(f"Error getting latest news: {str(e)}")
                 break
-            all_news.extend(news)
-            start += len(news)
             
         return all_news[:count]
 
@@ -121,17 +149,22 @@ class NewsCollector:
                 if len(all_news) >= count:
                     break
                     
-                news_list = self.get_latest_news(
-                    keyword,
-                    count=min(5, count - len(all_news)),
-                    media=media
-                )
-                
-                # 중복되지 않은 뉴스만 추가
-                for news in news_list:
-                    if news.link not in seen_links:
-                        all_news.append(news)
-                        seen_links.add(news.link)
+                try:
+                    news_list = self.get_latest_news(
+                        keyword,
+                        count=min(5, count - len(all_news)),
+                        media=media
+                    )
+                    
+                    # 중복되지 않은 뉴스만 추가
+                    for news in news_list:
+                        if news.link not in seen_links:
+                            all_news.append(news)
+                            seen_links.add(news.link)
+                            
+                except Exception as e:
+                    logger.error(f"Error getting news for {category} - {keyword} - {media}: {str(e)}")
+                    continue
                         
         return all_news[:count]
 
