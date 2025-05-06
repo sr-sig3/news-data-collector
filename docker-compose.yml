@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  news-collector:
+    build: .
+    container_name: news_collector
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS:-news-stream-broker-kafka-1:9092}
+      - KAFKA_TOPIC=${KAFKA_TOPIC:-news-topic}
+      - NAVER_CLIENT_ID=${NAVER_CLIENT_ID}
+      - NAVER_CLIENT_SECRET=${NAVER_CLIENT_SECRET}
+    networks:
+      - news-network
+      - news-stream-broker_kafka-network
+
+networks:
+  news-network:
+    driver: bridge
+  news-stream-broker_kafka-network:
+    name: news-stream-broker_kafka-network
+    external: true 
