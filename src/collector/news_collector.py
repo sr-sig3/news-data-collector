@@ -5,9 +5,13 @@ from config.config import NAVER_CLIENT_ID, NAVER_CLIENT_SECRET, NAVER_NEWS_SEARC
 from config.categories import CATEGORIES
 from datetime import datetime
 from ..producer.kafka_producer import NewsKafkaProducer
+import logging
+
+logger = logging.getLogger(__name__)
 
 class NewsCollector:
     def __init__(self):
+        logger.info("Initializing NewsCollector")
         self.headers = {
             'X-Naver-Client-Id': NAVER_CLIENT_ID,
             'X-Naver-Client-Secret': NAVER_CLIENT_SECRET
@@ -140,8 +144,10 @@ class NewsCollector:
             count (int): 수집할 뉴스 개수
         """
         try:
+            logger.info(f"Collecting news for query: {query}, count: {count}")
             # 뉴스 수집
             news_list = self.search_news(query, count)
+            logger.info(f"Collected {len(news_list)} news items")
             
             # 각 뉴스를 Kafka로 전송
             for news in news_list:
@@ -153,12 +159,14 @@ class NewsCollector:
                     'source': news.source,
                     'collected_at': datetime.now().isoformat()
                 }
+                logger.info(f"Preparing to send news: {news.title}")
                 self.kafka_producer.send_news(news_data)
                 
         except Exception as e:
-            print(f"Error in collect_and_send_news: {str(e)}")
+            logger.error(f"Error in collect_and_send_news: {str(e)}")
             raise
 
     def close(self):
         """Kafka Producer를 명시적으로 닫습니다."""
+        logger.info("Closing NewsCollector")
         self.kafka_producer.close() 
